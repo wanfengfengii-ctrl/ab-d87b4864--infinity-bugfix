@@ -64,7 +64,18 @@ export interface StepRecord {
 /** 一套完整方案：每块配重恰用一次的位置 + 完整挂装次序。 */
 export interface Plan {
   steps: StepRecord[];
+  /**
+   * 总安装代价的双精度舍入值。仅在精确总代价可被双精度表示时有限；
+   * 当总代价超过 Number.MAX_VALUE（如四块各 1e308，总和 4e308）时为 Infinity。
+   * 任何展示都应优先使用 totalCostText——它是不经过双精度的精确有限十进制文本。
+   */
   totalCost: number;
+  /**
+   * 总安装代价的精确有限十进制文本（直接由录入值精确累计，不经过双精度）。
+   * 常规规模为不带指数的规范文本（如 "0.3"）；规模过大/过小时为精确科学
+   * 计数法（如 4×10^308 记作 "4e308"），绝不为 Infinity 或缺失值。
+   */
+  totalCostText: string;
   /** 方案的力矩余量 = 所有前缀状态力矩余量的最小值（越大越安全）。 */
   minTorqueMargin: number;
   finalMass: number;

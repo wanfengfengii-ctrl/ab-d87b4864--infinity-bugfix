@@ -5,7 +5,9 @@ import {
   decimalCompare,
   decimalFromNumber,
   decimalFromText,
+  decimalToDisplayString,
   decimalToNumber,
+  decimalToScientificString,
   decimalToString,
 } from './decimal';
 
@@ -93,5 +95,46 @@ describe('decimal · 录入原文精确解析（decimalFromText）', () => {
     expect(() => t('abc')).toThrow();
     expect(() => t('1.2.3')).toThrow();
     expect(() => t('e5')).toThrow();
+  });
+});
+
+describe('decimal · 超大有限值的精确累计与展示（不溢出为 Infinity）', () => {
+  it('四个 1e308 的精确和为 4e308，转回双精度溢出但精确文本仍有限', () => {
+    // 复现报告场景：每块录入 1e308（本身是有限双精度），四块之和 4e308
+    // 已超出 Number.MAX_VALUE——旧实现经 Number() 转出 Infinity。
+    expect(Number.isFinite(1e308)).toBe(true);
+    expect(Number.isFinite(4e308 as unknown as number)).toBe(false); // 双精度下 4e308 即 Infinity
+    const one = t('1e308');
+    const sum = [one, one, one, one].reduce((acc, x) => decimalAdd(acc, x), DECIMAL_ZERO);
+    expect(decimalCompare(sum, t('4e308'))).toBe(0);
+    expect(decimalToNumber(sum)).toBe(Number.POSITIVE_INFINITY); // 双精度确实装不下
+    // 精确层不受影响：比较仍严格有序
+    expect(decimalCompare(sum, one)).toBe(1);
+    expect(decimalCompare(t('3.9999e308'), sum)).toBe(-1);
+    // 展示文本精确且有限
+    expect(decimalToScientificString(sum)).toBe('4e308');
+    expect(decimalToDisplayString(sum)).toBe('4e308');
+    expect(decimalToDisplayString(sum)).not.toContain('Infinity');
+  });
+
+  it('科学计数法展示对各数量级与正负号正确', () => {
+    expect(decimalToScientificString(t('4e308'))).toBe('4e308');
+    expect(decimalToScientificString(t('1.23e308'))).toBe('1.23e308');
+    expect(decimalToScientificString(t('-5e200'))).toBe('-5e200');
+    expect(decimalToScientificString(t('1e-300'))).toBe('1e-300');
+    expect(decimalToScientificString(t('6.022e23'))).toBe('6.022e23');
+    expect(decimalToScientificString(t('0'))).toBe('0');
+    // normalize 已去尾零：100 × 10^0 不展示成 100e0
+    expect(decimalToScientificString(t('100'))).toBe('1e2');
+  });
+
+  it('display 在固定形式不过长时保持不带指数，过长时退回科学计数法', () => {
+    expect(decimalToDisplayString(t('0.3'))).toBe('0.3');
+    expect(decimalToDisplayString(t('8'))).toBe('8');
+    expect(decimalToDisplayString(t('1e21'))).toBe('1' + '0'.repeat(21)); // 22 位，仍走固定形式
+    expect(decimalToDisplayString(t('1e22'))).toBe('1' + '0'.repeat(22)); // 23 位，仍走固定形式
+    expect(decimalToDisplayString(t('1e23'))).toBe('1' + '0'.repeat(23)); // 24 位（含边界），仍走固定形式
+    expect(decimalToDisplayString(t('1e24'))).toBe('1e24'); // 25 位，退回科学计数法
+    expect(decimalToDisplayString(t('1.5e-25'))).toBe('1.5e-25');
   });
 });

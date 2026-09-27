@@ -254,6 +254,119 @@ describe('adjudicate · 可行方案与决胜规则', () => {
     expect(outcome.plan.steps.map((s) => s.optionIndex)).toEqual([0, 0, 0, 0]);
   });
 
+  it('大额有限录入代价：四块各 1e308 仍可行，总代价精确展示为 4e308 而非 Infinity', () => {
+    // 报告场景：两条力臂均为 0 的导轨、4 块质量均为 1 的配重，每个可挂位置的
+    // 安装代价都录入 1e308（有限双精度）；载荷上限 4、力矩区间 [-1,1]。
+    // 完整挂装方案可行；精确十进制总和 4×10^308 超出 Number.MAX_VALUE，
+    // 旧实现把 totalCost 转成 Infinity。修复后：裁决与决胜仍在精确十进制上
+    // 完成（不受溢出影响），totalCostText 必须是精确有限的 "4e308"。
+    const outcome = adjudicate({
+      rails: rails(['Z1', 0], ['Z2', 0]),
+      blocks: [
+        { id: 'b1', name: 'b1', mass: 1, options: [
+          { railId: 'rail-0', cost: 1e308, costText: '1e308' },
+          { railId: 'rail-1', cost: 1e308, costText: '1e308' },
+        ] },
+        { id: 'b2', name: 'b2', mass: 1, options: [
+          { railId: 'rail-0', cost: 1e308, costText: '1e308' },
+          { railId: 'rail-1', cost: 1e308, costText: '1e308' },
+        ] },
+        { id: 'b3', name: 'b3', mass: 1, options: [
+          { railId: 'rail-0', cost: 1e308, costText: '1e308' },
+          { railId: 'rail-1', cost: 1e308, costText: '1e308' },
+        ] },
+        { id: 'b4', name: 'b4', mass: 1, options: [
+          { railId: 'rail-0', cost: 1e308, costText: '1e308' },
+          { railId: 'rail-1', cost: 1e308, costText: '1e308' },
+        ] },
+      ],
+      limits: limits(4, -1, 1),
+    });
+    expect(outcome.feasible).toBe(true);
+    if (!outcome.feasible) return;
+    const plan = outcome.plan;
+    expect(plan.steps).toHaveLength(4);
+    expect(new Set(plan.steps.map((s) => s.blockIndex))).toEqual(new Set([0, 1, 2, 3]));
+    // 四个前缀都满足载荷与力矩约束
+    plan.steps.forEach((s) => {
+      expect(s.cumulativeMass).toBeLessThanOrEqual(4 + EPS);
+      expect(s.cumulativeTorque).toBe(0);
+    });
+    expect(plan.finalMass).toBe(4);
+    expect(plan.minTorqueMargin).toBe(1);
+    // 双精度装不下总和（这正是旧缺陷的来源），但精确文本必须保留且有限
+    expect(plan.totalCost).toBe(Number.POSITIVE_INFINITY);
+    expect(plan.totalCostText).toBe('4e308');
+    expect(Number.isFinite(Number(plan.totalCostText))).toBe(false); // 文本值本身超双精度——但它是文本
+    expect(plan.totalCostText).not.toContain('Infinity');
+    // 代价真正相等时的稳定决胜不变：全部取位置录入序号 #1
+    expect(plan.steps.map((s) => s.optionIndex)).toEqual([0, 0, 0, 0]);
+  });
+
+  it('大额代价决胜仍严格：1e308 级的真实十进制差额优先于序号决胜', () => {
+    // 与纳米代价用例同构，只是量级放到双精度边缘：b1 的 #1 录入 1.0001e308、
+    // #2 录入 1e308，其余三个位置均 1e308（真同代价）。精确十进制下
+    // #2 严格更便宜，必须选 optionIndex 1；总和 = 1e308×3 + 1e308 = 4e308。
+    // 旧实现若在双精度上比较会把两者都看成 1e308（1.0001e308 舍入）而错选 #1。
+    const outcome = adjudicate({
+      rails: rails(['Z1', 0], ['Z2', 0]),
+      blocks: [
+        { id: 'b1', name: 'b1', mass: 1, options: [
+          { railId: 'rail-0', cost: Number('1.0001e308'), costText: '1.0001e308' },
+          { railId: 'rail-1', cost: 1e308, costText: '1e308' },
+        ] },
+        { id: 'b2', name: 'b2', mass: 1, options: [
+          { railId: 'rail-0', cost: 1e308, costText: '1e308' },
+          { railId: 'rail-1', cost: 1e308, costText: '1e308' },
+        ] },
+        { id: 'b3', name: 'b3', mass: 1, options: [
+          { railId: 'rail-0', cost: 1e308, costText: '1e308' },
+          { railId: 'rail-1', cost: 1e308, costText: '1e308' },
+        ] },
+        { id: 'b4', name: 'b4', mass: 1, options: [
+          { railId: 'rail-0', cost: 1e308, costText: '1e308' },
+          { railId: 'rail-1', cost: 1e308, costText: '1e308' },
+        ] },
+      ],
+      limits: limits(4, -1, 1),
+    });
+    expect(outcome.feasible).toBe(true);
+    if (!outcome.feasible) return;
+    expect(outcome.plan.steps.map((s) => s.optionIndex)).toEqual([1, 0, 0, 0]);
+    // 3×1e308 + 1e308 = 4e308
+    expect(outcome.plan.totalCostText).toBe('4e308');
+  });
+
+  it('总和仍在双精度内但放大千倍会溢出：2×5e307 = 1e308 总代价保留精确文本', () => {
+    // 两块各 0、两块各 5e307（有限）：精确总和 1e308 仍为有限双精度，
+    // 但界面 fmt 的 ×1000 舍入会溢出，此时须退回精确文本 "1e308"。
+    const outcome = adjudicate({
+      rails: rails(['Z1', 0], ['Z2', 0]),
+      blocks: [
+        block('b1', 1, [[0, 0], [1, 0]]),
+        block('b2', 1, [[0, 0], [1, 0]]),
+        { id: 'b3', name: 'b3', mass: 1, options: [
+          { railId: 'rail-0', cost: 5e307, costText: '5e307' },
+          { railId: 'rail-1', cost: 5e307, costText: '5e307' },
+        ] },
+        { id: 'b4', name: 'b4', mass: 1, options: [
+          { railId: 'rail-0', cost: 5e307, costText: '5e307' },
+          { railId: 'rail-1', cost: 5e307, costText: '5e307' },
+        ] },
+      ],
+      limits: limits(4, -1, 1),
+    });
+    expect(outcome.feasible).toBe(true);
+    if (!outcome.feasible) return;
+    expect(Number.isFinite(5e307)).toBe(true);
+    expect(outcome.plan.totalCost).toBe(1e308);
+    expect(Number.isFinite(outcome.plan.totalCost)).toBe(true);
+    expect(outcome.plan.totalCostText).toBe('1e308');
+    // 各位置代价相同，序号决胜不变：块序 0→3、位置全取 #1
+    expect(outcome.plan.steps.map((s) => s.blockIndex)).toEqual([0, 1, 2, 3]);
+    expect(outcome.plan.steps.map((s) => s.optionIndex)).toEqual([0, 0, 0, 0]);
+  });
+
   it('力矩余量最大优先于总代价最小', () => {
     // 便宜方案（代价 2）余量仅 1；居中方案（代价 20）余量 5，必须选后者。
     const outcome = adjudicate({

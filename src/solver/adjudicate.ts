@@ -4,6 +4,7 @@ import {
   decimalCompare,
   decimalFromNumber,
   decimalFromText,
+  decimalToDisplayString,
   decimalToNumber,
   type Decimal,
 } from './decimal';
@@ -61,8 +62,10 @@ function costDecimalOf(o: { cost: number; costText?: string }): Decimal {
 }
 
 /**
- * 候选方案：对外只暴露 Plan（totalCost 为精确十进制总和的正确舍入值），
- * 内部另携带精确十进制总代价，供决胜与分支限界严格比较。
+ * 候选方案：对外暴露 Plan（totalCost 为精确十进制总和的双精度正确舍入值——
+ * 总和超出双精度范围时为 Infinity，这种规模以 totalCostText 为准；
+ * totalCostText 始终是精确有限的十进制文本），内部另携带精确十进制总代价，
+ * 供决胜与分支限界严格比较（比较不依赖双精度，再大也不会溢出）。
  */
 interface Candidate {
   plan: Plan;
@@ -151,6 +154,9 @@ export function adjudicate(scenario: Scenario): AdjudicationOutcome {
     plan: {
       steps: steps.map((s) => ({ ...s })),
       totalCost: decimalToNumber(cost),
+      // 精确有限的展示文本：即便总和已超出双精度范围（如 4×1e308 = 4e308），
+      // 这里仍直接由 Decimal 生成，不经过 Number()，绝不出现 Infinity。
+      totalCostText: decimalToDisplayString(cost),
       minTorqueMargin,
       finalMass: steps.length > 0 ? steps[steps.length - 1].cumulativeMass : 0,
       finalTorque: steps.length > 0 ? steps[steps.length - 1].cumulativeTorque : 0,

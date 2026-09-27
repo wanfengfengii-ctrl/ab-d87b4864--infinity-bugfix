@@ -258,6 +258,48 @@ if (r8.feasible) {
   );
 }
 
+// 大额有限成本场景（报告回归）：两条零力臂导轨、4 块单位质量配重，每个位置
+// 都录入有限十进制 1e308；载荷上限 4、力矩区间 [-1,1]。完整方案可行，但
+// 4×1e308 = 4e308 超出 Number.MAX_VALUE：双精度 totalCost 为 Infinity，
+// 精确十进制文本 totalCostText 必须是 "4e308"，且真同代价的序号决胜不变。
+const hugeCostScenario: Scenario = {
+  rails: [
+    { id: 'Z1', name: 'Z1', coordinate: 0 },
+    { id: 'Z2', name: 'Z2', coordinate: 0 },
+  ],
+  blocks: [1, 2, 3, 4].map((k) => ({
+    id: `b${k}`,
+    name: `b${k}`,
+    mass: 1,
+    options: [
+      { railId: 'Z1', cost: 1e308, costText: '1e308' },
+      { railId: 'Z2', cost: 1e308, costText: '1e308' },
+    ],
+  })),
+  limits: { maxLoad: 4, minTorque: -1, maxTorque: 1 },
+};
+
+const r9 = adjudicate(hugeCostScenario);
+check(r9.feasible, '裁决模块：大额成本场景应判定为可行');
+if (r9.feasible) {
+  const p = r9.plan;
+  check(p.steps.length === 4, '大额成本：完整方案应覆盖四块配重');
+  check(
+    p.steps.every((s) => s.cumulativeMass <= 4 && s.cumulativeTorque === 0),
+    '大额成本：每个前缀状态均满足载荷与力矩限制',
+  );
+  check(p.finalMass === 4 && p.minTorqueMargin === 1, '大额成本：最终载荷 4、最小力矩余量 1');
+  check(p.totalCost === Number.POSITIVE_INFINITY, '大额成本：4e308 确实超出双精度（缺陷根因保留在记录中）');
+  check(
+    p.totalCostText === '4e308' && !p.totalCostText.includes('Infinity'),
+    `大额成本：总代价须精确展示为 4e308（实际文本 "${p.totalCostText}"，双精度 ${p.totalCost}）`,
+  );
+  check(
+    p.steps.every((s) => s.optionIndex === 0 && Number.isFinite(s.cost) && s.cost === 1e308),
+    '大额成本：真同代价的稳定决胜不变（全取位置 #1），各步录入代价仍有限为 1e308',
+  );
+}
+
 // 不可行场景：深度 1 即止步，最深前缀为 b1@R（余量最大），剩余选择同时触发载荷与力矩限制。
 const infeasibleScenario: Scenario = {
   rails: [{ id: 'R', name: 'R', coordinate: 1 }],

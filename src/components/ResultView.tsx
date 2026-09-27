@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import type { AdjudicationOutcome, Scenario, StepRecord, ViolationKind } from '../solver/types';
-import { fmt } from '../format';
+import { fmt, fmtCost } from '../format';
 
 const KIND_LABEL: Record<ViolationKind, string> = {
   load: '总载荷超限',
@@ -21,8 +21,14 @@ function unusedOptions(scenario: Scenario, step: StepRecord) {
     .filter(({ j }) => j !== step.optionIndex)
     .map(({ o, j }) => {
       const rail = scenario.rails.find((r) => r.id === o.railId);
-      return { key: `${step.blockIndex}-${j}`, text: `${rail?.name ?? o.railId}（代价 ${fmt(o.cost)}）` };
+      return { key: `${step.blockIndex}-${j}`, text: `${rail?.name ?? o.railId}（代价 ${fmtCost(o.cost, o.costText)}）` };
     });
+}
+
+/** 该步采用位置的安装代价展示文本（大额有限值时以录入原文精确呈现，不用双精度舍入）。 */
+function adoptedCostText(scenario: Scenario, step: StepRecord): string {
+  const option = scenario.blocks[step.blockIndex]?.options[step.optionIndex];
+  return fmtCost(step.cost, option?.costText);
 }
 
 function StepTable({ scenario, steps, active }: { scenario: Scenario; steps: StepRecord[]; active?: number }) {
@@ -46,7 +52,7 @@ function StepTable({ scenario, steps, active }: { scenario: Scenario; steps: Ste
             <td>{i + 1}</td>
             <td>{s.blockName}</td>
             <td>
-              {s.railName}（力臂 {fmt(s.coordinate)}，代价 {fmt(s.cost)}）
+              {s.railName}（力臂 {fmt(s.coordinate)}，代价 {adoptedCostText(scenario, s)}）
             </td>
             <td>
               {unusedOptions(scenario, s).map((u) => (
@@ -77,7 +83,12 @@ function FeasibleView({ scenario, outcome }: { scenario: Scenario; outcome: Extr
       <div className="summary">
         <div>
           <span className="k">总安装代价</span>
-          <span className="v">{fmt(plan.totalCost)}</span>
+          {/* 精确十进制总和的展示：常规规模与旧值逐字一致；双精度舍入溢出
+              （如 1e308 放大 1000 倍）或总和超出双精度范围（如 4e308）时，
+              退回 totalCostText —— 始终精确有限，不显示 Infinity 或缺失值。 */}
+          <span className="v" title={`精确十进制总代价：${plan.totalCostText}`}>
+            {fmtCost(plan.totalCost, plan.totalCostText)}
+          </span>
         </div>
         <div>
           <span className="k">最小力矩余量</span>
@@ -119,7 +130,7 @@ function FeasibleView({ scenario, outcome }: { scenario: Scenario; outcome: Extr
         </h3>
         <ul>
           <li>
-            采用位置：<strong>{step.railName}</strong>（力臂 {fmt(step.coordinate)}，安装代价 {fmt(step.cost)}）
+            采用位置：<strong>{step.railName}</strong>（力臂 {fmt(step.coordinate)}，安装代价 {adoptedCostText(scenario, step)}）
           </li>
           <li>
             未采用位置：

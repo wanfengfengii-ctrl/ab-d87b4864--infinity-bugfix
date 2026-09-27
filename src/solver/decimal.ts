@@ -105,6 +105,31 @@ export function decimalToString(d: Decimal): string {
   return negative ? `-${text}` : text;
 }
 
+/**
+ * 科学计数法文本：Mantissa × 10^exp（如 4×10^308 → "4e308"，1.23×10^-7 → "1.23e-7"）。
+ * 系数已经 normalize 去掉末尾 0，因此有效数字之外不会多出零；该文本与内部
+ * coefficient × 10^exponent 表示同样精确，不经过双精度，再大的有限值也不会变成 Infinity。
+ */
+export function decimalToScientificString(d: Decimal): string {
+  if (d.coefficient === 0n) return '0';
+  const negative = d.coefficient < 0n;
+  const digits = (negative ? -d.coefficient : d.coefficient).toString();
+  const exp = digits.length + d.exponent - 1;
+  const mantissa = digits.length === 1 ? digits : `${digits[0]}.${digits.slice(1)}`;
+  const expSign = exp < 0 ? '-' : '';
+  return `${negative ? '-' : ''}${mantissa}e${expSign}${Math.abs(exp)}`;
+}
+
+/**
+ * 供展示的精确十进制文本：固定形式不过长时用不带指数的规范文本，
+ * 过大/过小（固定形式会写成数百位）时退回精确的科学计数法。
+ * 例如四个 1e308 的和固定形式有 309 位，此处给出紧凑且精确的 "4e308"。
+ */
+export function decimalToDisplayString(d: Decimal): string {
+  const fixed = decimalToString(d);
+  return fixed.length <= 24 ? fixed : decimalToScientificString(d);
+}
+
 /** 转回双精度（经规范十进制文本解析，正确舍入到最近的双精度值）。 */
 export function decimalToNumber(d: Decimal): number {
   return Number(decimalToString(d));
