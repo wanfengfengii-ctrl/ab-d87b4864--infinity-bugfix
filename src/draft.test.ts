@@ -38,7 +38,7 @@ describe('parseDraft × adjudicate · 录入代价原文贯通', () => {
     // 报告要求：返回 1,0,0,0，b1 选代价为 0.1 的位置 #2
     expect(outcome.plan.steps.map((s) => s.optionIndex)).toEqual([1, 0, 0, 0]);
     expect(outcome.plan.steps[0].railName).toBe('#2');
-    expect(outcome.plan.totalCost).toBe(0.1);
+    expect(outcome.plan.totalCostText).toBe('0.1');
   });
 
   it('代价完全相等时稳定决胜：两块都录 0.1 仍取字典序最小的 #1（0,0,0,0）', () => {
@@ -48,6 +48,6 @@ describe('parseDraft × adjudicate · 录入代价原文贯通', () => {
     expect(outcome.feasible).toBe(true);
     if (!outcome.feasible) return;
     expect(outcome.plan.steps.map((s) => s.optionIndex)).toEqual([0, 0, 0, 0]);
-    expect(outcome.plan.totalCost).toBe(0.1);
+    expect(outcome.plan.totalCostText).toBe('0.1');
   });
 });

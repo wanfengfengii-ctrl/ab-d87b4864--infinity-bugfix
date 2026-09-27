@@ -41,7 +41,7 @@ if (r1.feasible) {
     r1.plan.steps.every((s) => Math.abs(s.cumulativeTorque) <= 5 + 1e-9 && s.cumulativeMass <= 100 + 1e-9),
     '裁决模块：每个前缀状态均满足载荷与力矩限制',
   );
-  check(Math.abs(r1.plan.totalCost - 8) < 1e-9, `裁决模块：总安装代价应为 8（实际 ${r1.plan.totalCost}）`);
+  check(r1.plan.totalCostText === '8', `裁决模块：总安装代价应为 8（实际 ${r1.plan.totalCostText}）`);
   check(Math.abs(r1.plan.minTorqueMargin - 5) < 1e-9, `裁决模块：力矩余量应为 5（实际 ${r1.plan.minTorqueMargin}）`);
   check(
     r1.plan.steps[0].railId === 'M2' && r1.plan.steps[1].railId === 'M1',
@@ -77,7 +77,7 @@ if (r0.feasible) {
     p.steps.every((s) => s.optionIndex === 1 && s.railId === 'Z2'),
     '纳米代价：四块均须采用零代价的位置 #2（Z2）',
   );
-  check(p.totalCost === 0, `纳米代价：总代价须严格为 0（实际 ${p.totalCost}）`);
+  check(p.totalCostText === '0', `纳米代价：总代价须严格为 0（实际 ${p.totalCostText}）`);
 }
 
 // 十进制等价成本场景：b1@P+b2@N（0.1+0.2）与 b1@N+b2@P（0.3+0）按录入的
@@ -103,7 +103,7 @@ const r3 = adjudicate(decimalTieScenario);
 check(r3.feasible, '裁决模块：十进制等价成本场景应判定为可行');
 if (r3.feasible) {
   const p = r3.plan;
-  check(p.totalCost === 0.3, `十进制等价：总代价应为 0.3（实际 ${p.totalCost}）`);
+  check(p.totalCostText === '0.3', `十进制等价：总代价应为 0.3（实际 ${p.totalCostText}）`);
   check(
     p.steps.map((s) => s.optionIndex).join(',') === '0,0,0,0',
     `十进制等价：同成本应按序号决胜返回 0,0,0,0（实际 ${p.steps.map((s) => s.optionIndex).join(',')}）`,
@@ -132,7 +132,7 @@ const unequalCostScenario: Scenario = {
 const r4 = adjudicate(unequalCostScenario);
 check(r4.feasible, '裁决模块：真实不等成本场景应判定为可行');
 if (r4.feasible) {
-  check(r4.plan.totalCost === 0.3, `真实不等成本：总代价应为 0.3（实际 ${r4.plan.totalCost}）`);
+  check(r4.plan.totalCostText === '0.3', `真实不等成本：总代价应为 0.3（实际 ${r4.plan.totalCostText}）`);
   check(
     r4.plan.steps.map((s) => s.optionIndex).join(',') === '0,0,0,0',
     `真实不等成本：仍须选 0,0,0,0（实际 ${r4.plan.steps.map((s) => s.optionIndex).join(',')}）`,
@@ -175,7 +175,7 @@ if (r5.feasible) {
     `极细小差额：b1 须选代价 0.1 的位置 #2，返回 1,0,0,0（实际 ${p.steps.map((s) => s.optionIndex).join(',')}）`,
   );
   check(p.steps[0].railId === 'Z2', '极细小差额：首块 b1 应挂在 Z2');
-  check(p.totalCost === 0.1, `极细小差额：总代价应为 0.1（实际 ${p.totalCost}）`);
+  check(p.totalCostText === '0.1', `极细小差额：总代价应为 0.1（实际 ${p.totalCostText}）`);
   check(p.finalMass === 4, '极细小差额：最终载荷应恰为上限 4（载荷边界）');
   check(
     p.steps.every((s) => s.cumulativeTorque === 0 && s.cumulativeMass <= 4),
@@ -235,7 +235,7 @@ if (r7.feasible) {
     p.minTorqueMargin === 1 - 0.9999999995 && p.minTorqueMargin > 0,
     `亚纳米余量：最小力矩余量应为 1-0.9999999995 ≈ 5e-10（实际 ${p.minTorqueMargin}）`,
   );
-  check(p.totalCost === 1, `亚纳米余量：总代价应为 1（实际 ${p.totalCost}）`);
+  check(p.totalCostText === '1', `亚纳米余量：总代价应为 1（实际 ${p.totalCostText}）`);
   check(p.finalMass === 4, '亚纳米余量：最终载荷应恰为上限 4（载荷边界）');
   check(
     p.steps.every((s) => s.cumulativeMass <= 4 && Math.abs(s.cumulativeTorque) <= 1),
@@ -253,9 +253,52 @@ const r8 = adjudicate(trueMarginTieScenario);
 check(r8.feasible, '裁决模块：余量真相等对照场景应判定为可行');
 if (r8.feasible) {
   check(
-    r8.plan.steps.map((s) => s.optionIndex).join(',') === '0,0,0,0' && r8.plan.totalCost === 0,
-    `余量真相等：应按成本决胜返回 0,0,0,0、代价 0（实际 ${r8.plan.steps.map((s) => s.optionIndex).join(',')}，代价 ${r8.plan.totalCost}）`,
+    r8.plan.steps.map((s) => s.optionIndex).join(',') === '0,0,0,0' && r8.plan.totalCostText === '0',
+    `余量真相等：应按成本决胜返回 0,0,0,0、代价 0（实际 ${r8.plan.steps.map((s) => s.optionIndex).join(',')}，代价 ${r8.plan.totalCostText}）`,
   );
+}
+
+// 大额有限代价场景：两块零力臂导轨，四块单位质量配重，每个位置代价都录入
+// 有限十进制值 1e308；载荷上限 4、力矩区间 [-1,1]，完整挂装方案可行。
+// 单项 1e308 仍是有限双精度，但精确总和 4e308 超出双精度范围
+// （Number('4e308') === Infinity），总代价必须以精确十进制文本保留为
+// "4" + 308 个 0，不得显示为 Infinity 或缺失；真同代价时序号决胜仍取 #1。
+const hugeCostScenario: Scenario = {
+  rails: [
+    { id: 'Z1', name: 'Z1', coordinate: 0 },
+    { id: 'Z2', name: 'Z2', coordinate: 0 },
+  ],
+  blocks: [1, 2, 3, 4].map((k) => ({
+    id: `b${k}`,
+    name: `b${k}`,
+    mass: 1,
+    options: [
+      { railId: 'Z1', cost: 1e308, costText: '1e308' },
+      { railId: 'Z2', cost: 1e308, costText: '1e308' },
+    ],
+  })),
+  limits: { maxLoad: 4, minTorque: -1, maxTorque: 1 },
+};
+
+const r9 = adjudicate(hugeCostScenario);
+check(r9.feasible, '裁决模块：大额代价场景应判定为可行');
+if (r9.feasible) {
+  const p = r9.plan;
+  check(p.steps.length === 4, '大额代价：完整方案应覆盖四块配重');
+  check(
+    p.totalCostText === '4' + '0'.repeat(308),
+    `大额代价：总代价应为精确有限的 4e308（4 后 308 个 0；实际 ${p.totalCostText.slice(0, 12)}…，长度 ${p.totalCostText.length}）`,
+  );
+  check(!p.totalCostText.includes('Infinity'), '大额代价：总代价不得为 Infinity');
+  check(
+    p.steps.map((s) => s.optionIndex).join(',') === '0,0,0,0',
+    `大额代价：真同代价应按序号决胜返回 0,0,0,0（实际 ${p.steps.map((s) => s.optionIndex).join(',')}）`,
+  );
+  check(
+    p.steps.every((s) => s.costText === '1' + '0'.repeat(308)),
+    '大额代价：每步代价也应逐位精确展示为 1e308',
+  );
+  check(p.finalMass === 4 && p.minTorqueMargin === 1, '大额代价：可行性与力矩余量不受影响');
 }
 
 // 不可行场景：深度 1 即止步，最深前缀为 b1@R（余量最大），剩余选择同时触发载荷与力矩限制。

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { adjudicate, EPS } from './adjudicate';
+import { decimalCompare, decimalFromNumber, decimalFromText } from './decimal';
 import type { Scenario } from './types';
 
 const rails = (...defs: [string, number][]): Scenario['rails'] =>
@@ -36,7 +37,7 @@ describe('adjudicate · 可行方案与决胜规则', () => {
       [0, 'L'],
       [1, 'R'],
     ]);
-    expect(outcome.plan.totalCost).toBeCloseTo(2);
+    expect(outcome.plan.totalCostText).toBe('2');
     expect(outcome.plan.minTorqueMargin).toBeCloseTo(1);
     // 每个前缀状态同时满足载荷与力矩限制
     for (const s of outcome.plan.steps) {
@@ -68,10 +69,10 @@ describe('adjudicate · 可行方案与决胜规则', () => {
     expect(new Set(plan.steps.map((s) => s.blockIndex))).toEqual(new Set([0, 1, 2, 3]));
     expect(plan.steps.map((s) => s.optionIndex)).toEqual([1, 1, 1, 1]);
     expect(plan.steps.map((s) => s.railName)).toEqual(['Z2', 'Z2', 'Z2', 'Z2']);
-    // 总代价严格为 0（不用 toBeCloseTo：容差会把缺陷掩盖掉）
-    expect(plan.totalCost).toBe(0);
+    // 总代价严格为 0（精确文本断言：容差会把缺陷掩盖掉）
+    expect(plan.totalCostText).toBe('0');
     // 对照：错选方案本会产生 4e-10 的可避免成本
-    expect(4 * 1e-10).toBeGreaterThan(plan.totalCost);
+    expect(decimalCompare(decimalFromNumber(4 * 1e-10), decimalFromText(plan.totalCostText))).toBe(1);
     // 力矩余量与边界：零力臂使力矩恒为 0，余量为 1；载荷恰好到上限
     expect(plan.minTorqueMargin).toBe(1);
     plan.steps.forEach((s) => {
@@ -95,8 +96,76 @@ describe('adjudicate · 可行方案与决胜规则', () => {
     });
     expect(outcome.feasible).toBe(true);
     if (!outcome.feasible) return;
-    expect(outcome.plan.totalCost).toBe(0);
+    expect(outcome.plan.totalCostText).toBe('0');
     expect(outcome.plan.steps.map((s) => s.optionIndex)).toEqual([0, 0, 0, 0]);
+  });
+
+  it('有限大额代价：4 × 1e308 = 4e308 仍可行，总代价为精确且有限的十进制文本', () => {
+    // 报告场景：两条力臂均为 0 的导轨，4 块质量均为 1 的配重，每个位置代价
+    // 都是有限录入值 1e308；载荷上限 4，力矩区间 [-1,1]。单项 1e308 仍是
+    // 有限双精度，但精确总和 4e308 超出双精度范围（Number('4e308') 为
+    // Infinity），旧实现把总代价经 Number 输出导致界面显示 Infinity/缺失值。
+    expect(Number('1e308')).toBeLessThan(Number.POSITIVE_INFINITY); // 单项有限
+    expect(Number('4e308')).toBe(Number.POSITIVE_INFINITY); // 精确总和溢出双精度
+    const outcome = adjudicate({
+      rails: rails(['Z1', 0], ['Z2', 0]),
+      blocks: [
+        block('b1', 1, [[0, 1e308], [1, 1e308]]),
+        block('b2', 1, [[0, 1e308], [1, 1e308]]),
+        block('b3', 1, [[0, 1e308], [1, 1e308]]),
+        block('b4', 1, [[0, 1e308], [1, 1e308]]),
+      ],
+      limits: limits(4, -1, 1),
+    });
+    expect(outcome.feasible).toBe(true);
+    if (!outcome.feasible) return;
+    const plan = outcome.plan;
+    expect(plan.steps).toHaveLength(4);
+    // 总代价逐位精确：4 后接 308 个 0，绝不允许是 "Infinity" 或缺失
+    expect(plan.totalCostText).toBe('4' + '0'.repeat(308));
+    expect(plan.totalCostText).not.toContain('Infinity');
+    // 真同代价时序号决胜不变：四块全部取位置录入序号 #1
+    expect(plan.steps.map((s) => s.optionIndex)).toEqual([0, 0, 0, 0]);
+    // 每步代价也逐位保留
+    expect(plan.steps.every((s) => s.costText === '1' + '0'.repeat(308))).toBe(true);
+    // 物理量与可行性不受影响
+    expect(plan.finalMass).toBe(4);
+    expect(plan.minTorqueMargin).toBe(1);
+    for (const s of plan.steps) {
+      expect(s.cumulativeTorque).toBe(0);
+      expect(s.cumulativeMass).toBeLessThanOrEqual(4 + EPS);
+    }
+  });
+
+  it('大额代价在双精度不可区分时仍按录入十进制严格决胜（1.00000000000000001e308 vs 1e308）', () => {
+    // 与上一场景同构，但 b1 的 #1 略贵：1.00000000000000001e308 与 1e308 之差
+    // （1e291）小于该量级的双精度 ULP（约 2e292），Number() 会舍入为
+    // 同一个 double；必须凭 Decimal 层的精确比较让 b1 选更便宜的 #2。
+    expect(Number('1.00000000000000001e308')).toBe(1e308); // 佐证差异在双精度下丢失
+    const outcome = adjudicate({
+      rails: rails(['Z1', 0], ['Z2', 0]),
+      blocks: [
+        {
+          id: 'blk-b1',
+          name: 'b1',
+          mass: 1,
+          options: [
+            { railId: 'rail-0', cost: 1e308, costText: '1.00000000000000001e308' },
+            { railId: 'rail-1', cost: 1e308, costText: '1e308' },
+          ],
+        },
+        block('b2', 1, [[0, 1e308], [1, 1e308]]),
+        block('b3', 1, [[0, 1e308], [1, 1e308]]),
+        block('b4', 1, [[0, 1e308], [1, 1e308]]),
+      ],
+      limits: limits(4, -1, 1),
+    });
+    expect(outcome.feasible).toBe(true);
+    if (!outcome.feasible) return;
+    expect(outcome.plan.steps.map((s) => s.optionIndex)).toEqual([1, 0, 0, 0]);
+    // b1 已改选更便宜的 #2，四块实际采用的代价都是 1e308：总代价精确为 4e308
+    expect(outcome.plan.totalCostText).toBe('4' + '0'.repeat(308));
+    expect(outcome.plan.totalCostText).not.toContain('Infinity');
   });
 
   it('十进制等价总代价：0.1+0.2 与 0.3+0 视为同成本，按序号决胜取 0,0,0,0', () => {
@@ -126,8 +195,8 @@ describe('adjudicate · 可行方案与决胜规则', () => {
       [2, 'Z1'],
       [3, 'Z1'],
     ]);
-    // 总代价按十进制值精确为 0.3（不用 toBeCloseTo：容差会把缺陷掩盖掉）
-    expect(plan.totalCost).toBe(0.3);
+    // 总代价按十进制值精确为 0.3（精确文本断言，不用 toBeCloseTo：容差会把缺陷掩盖掉）
+    expect(plan.totalCostText).toBe('0.3');
     // 力矩余量：挂装途中必然出现 |力矩| = 1 的前缀，余量为 0
     expect(plan.minTorqueMargin).toBe(0);
     // 载荷与力矩边界：最终载荷恰为上限 4，首步力矩恰为区间边界 +1
@@ -160,7 +229,7 @@ describe('adjudicate · 可行方案与决胜规则', () => {
     const cheaper = run(0.1, 1e-10);
     expect(cheaper.feasible).toBe(true);
     if (cheaper.feasible) {
-      expect(cheaper.plan.totalCost).toBe(0.3);
+      expect(cheaper.plan.totalCostText).toBe('0.3');
       expect(cheaper.plan.steps.map((s) => s.optionIndex)).toEqual([0, 0, 0, 0]);
     }
 
@@ -168,7 +237,7 @@ describe('adjudicate · 可行方案与决胜规则', () => {
     const dearer = run(0.1 + 1e-10, 0);
     expect(dearer.feasible).toBe(true);
     if (dearer.feasible) {
-      expect(dearer.plan.totalCost).toBe(0.3);
+      expect(dearer.plan.totalCostText).toBe('0.3');
       expect(dearer.plan.steps.map((s) => s.optionIndex)).toEqual([1, 1, 0, 0]);
       expect(dearer.plan.steps.map((s) => [s.blockIndex, s.railName])).toEqual([
         [0, 'N'],
@@ -216,8 +285,8 @@ describe('adjudicate · 可行方案与决胜规则', () => {
       [2, 'Z1'],
       [3, 'Z1'],
     ]);
-    // 总代价的精确十进制值为 0.1（舍入回双精度后仍是 0.1）
-    expect(plan.totalCost).toBe(0.1);
+    // 总代价的精确十进制文本为 "0.1"
+    expect(plan.totalCostText).toBe('0.1');
     // 载荷/力矩边界：最终载荷恰为上限 4，零力臂使力矩恒为 0、余量为 1
     expect(plan.finalMass).toBe(4);
     expect(plan.minTorqueMargin).toBe(1);
@@ -250,7 +319,7 @@ describe('adjudicate · 可行方案与决胜规则', () => {
     });
     expect(outcome.feasible).toBe(true);
     if (!outcome.feasible) return;
-    expect(outcome.plan.totalCost).toBe(0.1);
+    expect(outcome.plan.totalCostText).toBe('0.1');
     expect(outcome.plan.steps.map((s) => s.optionIndex)).toEqual([0, 0, 0, 0]);
   });
 
@@ -264,7 +333,7 @@ describe('adjudicate · 可行方案与决胜规则', () => {
     expect(outcome.feasible).toBe(true);
     if (!outcome.feasible) return;
     expect(outcome.plan.minTorqueMargin).toBeCloseTo(5);
-    expect(outcome.plan.totalCost).toBeCloseTo(20);
+    expect(outcome.plan.totalCostText).toBe('20');
     expect(outcome.plan.steps.map((s) => s.railName)).toEqual(['M', 'M']);
   });
 
@@ -281,7 +350,7 @@ describe('adjudicate · 可行方案与决胜规则', () => {
     expect(outcome.feasible).toBe(true);
     if (!outcome.feasible) return;
     expect(outcome.plan.minTorqueMargin).toBeCloseTo(5);
-    expect(outcome.plan.totalCost).toBeCloseTo(8);
+    expect(outcome.plan.totalCostText).toBe('8');
     expect(outcome.plan.steps.map((s) => [s.blockIndex, s.railName])).toEqual([
       [0, 'M2'],
       [1, 'M1'],
@@ -320,8 +389,8 @@ describe('adjudicate · 可行方案与决胜规则', () => {
     expect(expectedMargin).toBeGreaterThan(0);
     expect(expectedMargin).toBeLessThan(EPS); // 佐证该差在旧容差下会被抹平
     expect(plan.minTorqueMargin).toBe(expectedMargin);
-    // 更安全的方案代价更高：总代价严格为 1（余量差优先于成本）
-    expect(plan.totalCost).toBe(1);
+    // 更安全的方案代价更高：总代价精确文本为 "1"（余量差优先于成本）
+    expect(plan.totalCostText).toBe('1');
     // 载荷与力矩边界：最终载荷恰为上限 4，各前缀力矩均在闭区间内
     expect(plan.finalMass).toBe(4);
     for (const s of plan.steps) {
@@ -347,7 +416,7 @@ describe('adjudicate · 可行方案与决胜规则', () => {
     expect(outcome.feasible).toBe(true);
     if (!outcome.feasible) return;
     expect(outcome.plan.minTorqueMargin).toBe(0);
-    expect(outcome.plan.totalCost).toBe(0);
+    expect(outcome.plan.totalCostText).toBe('0');
     expect(outcome.plan.steps.map((s) => s.optionIndex)).toEqual([0, 0, 0, 0]);
     expect(outcome.plan.steps[0].railName).toBe('R');
   });
@@ -373,7 +442,7 @@ describe('adjudicate · 可行方案与决胜规则', () => {
       [1, 'R'],
       [3, 'H'],
     ]);
-    expect(outcome.plan.totalCost).toBeCloseTo(12);
+    expect(outcome.plan.totalCostText).toBe('12');
     expect(outcome.plan.minTorqueMargin).toBeCloseTo(1);
     for (const s of outcome.plan.steps) {
       expect(s.cumulativeTorque).toBeGreaterThanOrEqual(-3 - EPS);

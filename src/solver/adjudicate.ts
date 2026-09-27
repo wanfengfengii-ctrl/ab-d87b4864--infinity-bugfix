@@ -2,9 +2,8 @@ import {
   DECIMAL_ZERO,
   decimalAdd,
   decimalCompare,
-  decimalFromNumber,
-  decimalFromText,
-  decimalToNumber,
+  decimalFromCostInput,
+  decimalToString,
   type Decimal,
 } from './decimal';
 import type {
@@ -33,7 +32,7 @@ interface FlatOption {
   railName: string;
   coordinate: number;
   cost: number;
-  /** 本选项代价的精确十进制值（优先由录入原文恢复，见 costDecimalOf）。 */
+  /** 本选项代价的精确十进制值（优先由录入原文恢复，见 decimalFromCostInput）。 */
   costDecimal: Decimal;
 }
 
@@ -45,24 +44,11 @@ interface FlatBlock {
 }
 
 /**
- * 取一个选项代价的精确十进制值：优先用录入原文（避免双精度舍入丢失
- * "0.10000000000000001" vs "0.1" 这类差异）；原文形态无法按十进制解析
- * （Number() 还接受 0x10 这类写法）时退回 number 的最短往返表示。
- */
-function costDecimalOf(o: { cost: number; costText?: string }): Decimal {
-  if (o.costText !== undefined) {
-    try {
-      return decimalFromText(o.costText);
-    } catch {
-      // 落到下方按 number 恢复
-    }
-  }
-  return decimalFromNumber(o.cost);
-}
-
-/**
- * 候选方案：对外只暴露 Plan（totalCost 为精确十进制总和的正确舍入值），
- * 内部另携带精确十进制总代价，供决胜与分支限界严格比较。
+ * 候选方案：对外暴露的 Plan 携带精确十进制总代价文本（totalCostText，
+ * decimalToString 的规范无指数形式），内部另携带精确十进制总代价，
+ * 供决胜与分支限界严格比较。总代价绝不经过双精度：各项有限录入代价之和
+ * 可能超出双精度范围（如 4 × 1e308 = 4e308），一旦转 Number 就会溢出为
+ * Infinity。
  */
 interface Candidate {
   plan: Plan;
@@ -128,7 +114,7 @@ export function adjudicate(scenario: Scenario): AdjudicationOutcome {
         railName: rail.name,
         coordinate: rail.coordinate,
         cost: o.cost,
-        costDecimal: costDecimalOf(o),
+        costDecimal: decimalFromCostInput(o),
       };
     }),
   }));
@@ -150,7 +136,7 @@ export function adjudicate(scenario: Scenario): AdjudicationOutcome {
   const snapshot = (cost: Decimal, minTorqueMargin: number): Candidate => ({
     plan: {
       steps: steps.map((s) => ({ ...s })),
-      totalCost: decimalToNumber(cost),
+      totalCostText: decimalToString(cost),
       minTorqueMargin,
       finalMass: steps.length > 0 ? steps[steps.length - 1].cumulativeMass : 0,
       finalTorque: steps.length > 0 ? steps[steps.length - 1].cumulativeTorque : 0,
@@ -197,6 +183,7 @@ export function adjudicate(scenario: Scenario): AdjudicationOutcome {
           coordinate: opt.coordinate,
           mass: block.mass,
           cost: opt.cost,
+          costText: decimalToString(opt.costDecimal),
           cumulativeMass: massAfter,
           cumulativeTorque: torqueAfter,
           loadMargin: limits.maxLoad - massAfter,

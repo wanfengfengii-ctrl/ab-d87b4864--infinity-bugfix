@@ -49,8 +49,14 @@ export interface StepRecord {
   coordinate: number;
   /** 本步挂上的配重质量。 */
   mass: number;
-  /** 本步采用位置的安装代价。 */
+  /** 本步采用位置的安装代价（双精度视图）。 */
   cost: number;
+  /**
+   * 本步采用位置安装代价的精确十进制文本（decimalToString 规范形式，
+   * 不带指数）：单项代价也可能接近双精度上限（如 1e308），界面据此逐位
+   * 展示，避免经 fmt 的双精度舍入后变成缺失值。
+   */
+  costText: string;
   /** 本步完成后的已挂质量。 */
   cumulativeMass: number;
   /** 本步完成后的合力矩。 */
@@ -64,7 +70,14 @@ export interface StepRecord {
 /** 一套完整方案：每块配重恰用一次的位置 + 完整挂装次序。 */
 export interface Plan {
   steps: StepRecord[];
-  totalCost: number;
+  /**
+   * 总安装代价的精确十进制文本（decimalToString 规范形式，不带指数）。
+   * 不能用 number 承载：每项有限的录入代价之和可能超出双精度范围，例如
+   * 4 × 1e308 = 4e308，转成 Number 即溢出为 Infinity；代价的累计、比较与
+   * 决胜全部在 Decimal 层完成，界面直接展示本字段即可得到精确且有限的
+   * 十进制总代价。
+   */
+  totalCostText: string;
   /** 方案的力矩余量 = 所有前缀状态力矩余量的最小值（越大越安全）。 */
   minTorqueMargin: number;
   finalMass: number;

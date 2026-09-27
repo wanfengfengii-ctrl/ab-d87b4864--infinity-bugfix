@@ -59,6 +59,23 @@ export function decimalFromNumber(x: number): Decimal {
   return normalize({ coefficient: sign * BigInt(digits), exponent });
 }
 
+/**
+ * 取一个录入代价的精确十进制值：优先用录入原文（避免双精度舍入丢失
+ * "0.10000000000000001" vs "0.1" 这类差异）；原文形态无法按十进制解析
+ * （Number() 还接受 0x10 这类写法）时退回 number 的最短往返表示。
+ * number 本身非有限（Infinity/NaN）时抛出错误。
+ */
+export function decimalFromCostInput(o: { cost: number; costText?: string }): Decimal {
+  if (o.costText !== undefined) {
+    try {
+      return decimalFromText(o.costText);
+    } catch {
+      // 落到下方按 number 恢复
+    }
+  }
+  return decimalFromNumber(o.cost);
+}
+
 /** 去掉系数末尾的 0（并把零规范化为 0 × 10^0），保持表示紧凑。 */
 function normalize(d: Decimal): Decimal {
   let { coefficient, exponent } = d;

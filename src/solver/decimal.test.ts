@@ -3,6 +3,7 @@ import {
   DECIMAL_ZERO,
   decimalAdd,
   decimalCompare,
+  decimalFromCostInput,
   decimalFromNumber,
   decimalFromText,
   decimalToNumber,
@@ -93,5 +94,28 @@ describe('decimal · 录入原文精确解析（decimalFromText）', () => {
     expect(() => t('abc')).toThrow();
     expect(() => t('1.2.3')).toThrow();
     expect(() => t('e5')).toThrow();
+  });
+});
+
+describe('decimal · 超出双精度范围的有限录入代价', () => {
+  it('1e308 可精确表示，4 × 1e308 的精确和为 4e308 而非 Infinity', () => {
+    // 单项 1e308 仍是有限双精度；其和 4e308 超出双精度范围。
+    expect(1e308).toBeLessThan(Number.POSITIVE_INFINITY);
+    expect(Number('4e308')).toBe(Number.POSITIVE_INFINITY);
+    const one = decimalFromCostInput({ cost: 1e308, costText: '1e308' });
+    expect(decimalToString(one)).toBe('1' + '0'.repeat(308));
+    let sum = DECIMAL_ZERO;
+    for (let i = 0; i < 4; i++) sum = decimalAdd(sum, one);
+    expect(decimalToString(sum)).toBe('4' + '0'.repeat(308));
+    // 比较仍精确：4e308 严格大于 1e308，且四份之和两两相等（稳定决胜的基础）
+    expect(decimalCompare(sum, one)).toBe(1);
+    let sum2 = DECIMAL_ZERO;
+    for (let i = 0; i < 4; i++) sum2 = decimalAdd(sum2, one);
+    expect(decimalCompare(sum, sum2)).toBe(0);
+  });
+
+  it('number 视图非有限时 decimalFromCostInput 抛出错误', () => {
+    expect(() => decimalFromCostInput({ cost: Number.POSITIVE_INFINITY })).toThrow();
+    expect(() => decimalFromCostInput({ cost: Number.NaN })).toThrow();
   });
 });
